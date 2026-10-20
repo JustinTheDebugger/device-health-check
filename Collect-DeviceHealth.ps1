@@ -1,4 +1,4 @@
-# Windows PowerShell 5.1+; read-only inventory and performance sampling.
+﻿# Windows PowerShell 5.1+; read-only inventory and performance sampling.
 param([string]$PurchaseDate = '', [string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
 $script:healthErrorLog = Join-Path $env:TEMP 'DeviceHealthCollector-last-error.txt'
@@ -82,10 +82,10 @@ $purchaseAge=GetAge $PurchaseDate
 $ageStatus=if($null -eq $purchaseAge){'unknown'}elseif($purchaseAge -lt 3){'good'}elseif($purchaseAge -lt 5){'warning'}else{'review'}
 $ratings=[ordered]@{
  age=$ageStatus
- cpu=(RateHigh $cpuPct 20 50)
- memory=(RateHigh $ramPct 75 90)
- storage=(RateLow $diskFreePct 20 10)
- battery=(RateLow $batteryPct 85 80)
+ cpu=RateHigh $cpuPct 20 50
+ memory=RateHigh $ramPct 75 90
+ storage=RateLow $diskFreePct 20 10
+ battery=RateLow $batteryPct 85 80
  uptime=if($null -eq $uptime){'unknown'}elseif($uptime -lt 7){'good'}elseif($uptime -lt 30){'warning'}else{'warning'}
 }
 $operational=@($ratings.cpu,$ratings.memory,$ratings.storage,$ratings.battery)
@@ -93,21 +93,13 @@ $overall=if($operational -contains 'critical'){'critical'}elseif($operational -c
 $overallReasons=@()
 foreach($key in @('cpu','memory','storage','battery')) { if($ratings[$key] -eq 'critical' -or $ratings[$key] -eq 'warning') { $overallReasons+=('{0}: {1}' -f $key,$ratings[$key]) } }
 if($overallReasons.Count -eq 0){$overallReasons=@('No warning or critical measurements detected (unknown metrics not evaluated).')}
-$topCpu = Safe {
-    @(Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object {
-        @{ name = $_.ProcessName; cumulative_cpu_seconds = (RoundOrNull $_.CPU) }
-    })
-}
-$topRam = Safe {
-    @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object {
-        @{ name = $_.ProcessName; working_set_mb = (RoundOrNull ($_.WorkingSet64 / 1MB)) }
-    })
-}
+$topCpu=Safe { @(Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 | ForEach-Object { @{ name=$_.ProcessName; cumulative_cpu_seconds=RoundOrNull $_.CPU } }) }
+$topRam=Safe { @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { @{ name=$_.ProcessName; working_set_mb=RoundOrNull ($_.WorkingSet64/1MB) } }) }
 # Working set is resident memory per process, not total system RAM or private committed memory.
 $allProcesses=Safe { @(Get-Process | Where-Object { $_.WorkingSet64 -gt 0 }) }
 $ramGroups=@($allProcesses | Group-Object ProcessName | ForEach-Object {
  $sum=($_.Group | Measure-Object WorkingSet64 -Sum).Sum
- [pscustomobject]@{ name=$_.Name; instances=$_.Count; resident_mb=(RoundOrNull ($sum/1MB)) }
+ [pscustomobject]@{ name=$_.Name; instances=$_.Count; resident_mb=RoundOrNull ($sum/1MB) }
 } | Sort-Object resident_mb -Descending)
 $ramLeaders=@($ramGroups | Select-Object -First 15)
 $ramTop5Mb=($ramLeaders | Select-Object -First 5 | Measure-Object resident_mb -Sum).Sum
@@ -120,8 +112,8 @@ $ramLines | Set-Content -LiteralPath $ramReport -Encoding UTF8
 Write-Host ('RAM saved: ' + $ramReport)
 $report=[ordered]@{
  schema_version='1.0'; collected_at_utc=(Get-Date).ToUniversalTime().ToString('o'); platform='windows'; hostname=$env:COMPUTERNAME
- device=[ordered]@{ manufacturer=$computer.Manufacturer; model=$computer.Model; serial_number=$bios.SerialNumber; os_name=$os.Caption; os_version=$os.Version; cpu_model=$cpu.Name; bios_release_date=$biosDate; purchase_date=$(if($null -ne $purchaseAge){$PurchaseDate}else{$null}); age_years=$purchaseAge; age_source=if($purchaseAge -ne $null){'purchase_date'}else{'unknown'} }
- metrics=[ordered]@{ cpu_percent=$cpuPct; ram_total_gb=(RoundOrNull ($ramTotal/1GB)); ram_used_percent=$ramPct; storage_total_gb=$(if($disk){RoundOrNull ($disk.Size/1GB)}else{$null}); storage_free_gb=$(if($disk){RoundOrNull ($disk.FreeSpace/1GB)}else{$null}); storage_free_percent=$diskFreePct; battery_design_mwh=$design; battery_full_charge_mwh=$fullCap; battery_health_percent=$batteryPct; battery_cycle_count=$cycles; battery_cycle_level=$cycleLevel; battery_cycle_assessment=$cycleAssessment; battery_recommendation=$batteryAdvice; battery_cycle_rated_limit_assumed=$cycleLimit; uptime_days=$uptime }
+ device=[ordered]@{ manufacturer=$computer.Manufacturer; model=$computer.Model; serial_number=$bios.SerialNumber; os_name=$os.Caption; os_version=$os.Version; cpu_model=$cpu.Name; bios_release_date=$biosDate; purchase_date=if($purchaseAge -ne $null){$PurchaseDate}else{$null}; age_years=$purchaseAge; age_source=if($purchaseAge -ne $null){'purchase_date'}else{'unknown'} }
+ metrics=[ordered]@{ cpu_percent=$cpuPct; ram_total_gb=RoundOrNull ($ramTotal/1GB); ram_used_percent=$ramPct; storage_total_gb=if($disk){RoundOrNull ($disk.Size/1GB)}else{$null}; storage_free_gb=if($disk){RoundOrNull ($disk.FreeSpace/1GB)}else{$null}; storage_free_percent=$diskFreePct; battery_design_mwh=$design; battery_full_charge_mwh=$fullCap; battery_health_percent=$batteryPct; battery_cycle_count=$cycles; battery_cycle_level=$cycleLevel; battery_cycle_assessment=$cycleAssessment; battery_recommendation=$batteryAdvice; battery_cycle_rated_limit_assumed=$cycleLimit; uptime_days=$uptime }
  ratings=$ratings; overall_status=$overall; overall_reasons=$overallReasons
  processes=[ordered]@{top_cumulative_cpu=$topCpu; top_memory=$topRam; memory_groups=$ramLeaders; memory_top5_working_set_mb=(RoundOrNull $ramTop5Mb)}
  notes=@('CPU usage is a short sample, not an idle-only benchmark.','Top CPU processes are ranked by cumulative CPU time, not instantaneous CPU usage.','Battery metrics may be unavailable on some devices.','Age is only calculated from an explicitly provided purchase date; BIOS release date is not device manufacture date.')
@@ -211,25 +203,32 @@ $lines = @(
 )
 $lines | Set-Content -LiteralPath $txt -Encoding UTF8
 Write-Host ('TXT saved: ' + $txt)
-# Upload only after the JSON and TXT reports have been saved successfully.
-# Set DEVICE_HEALTH_API_URL and DEVICE_HEALTH_API_TOKEN in the collector process.
-# HTTP is permitted for loopback testing only; remote endpoints must use HTTPS.
-if ($env:DEVICE_HEALTH_API_URL -and $env:DEVICE_HEALTH_API_TOKEN) {
+# Portable deployment: fixed HTTPS endpoint, no persistent token or local Node.js required.
+# During the initial supervised test, the operator enters the current API token once per run.
+$apiUrl = 'https://device-health-api.onrender.com/api/ingest'
+$uploadToken = $env:DEVICE_HEALTH_API_TOKEN
+if ([string]::IsNullOrWhiteSpace($uploadToken)) {
+ Write-Host 'Report saved locally. Enter the API token to upload (leave blank to skip).'
+ $secureToken = Read-Host 'Device Health API token' -AsSecureString
+ if ($secureToken.Length -gt 0) {
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+  try { $uploadToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+  finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+ }
+ Remove-Variable secureToken -ErrorAction SilentlyContinue
+}
+if (-not [string]::IsNullOrWhiteSpace($uploadToken)) {
  try {
-  $apiUri = New-Object System.Uri($env:DEVICE_HEALTH_API_URL)
-  $isLoopback = $apiUri.Host -eq 'localhost' -or $apiUri.Host -eq '127.0.0.1' -or $apiUri.Host -eq '[::1]'
-  if ($apiUri.Scheme -ne 'https' -and -not ($isLoopback -and $apiUri.Scheme -eq 'http')) {
-   throw 'Remote API URLs must use HTTPS; HTTP is allowed only on localhost.'
-  }
-  $response = Invoke-RestMethod -Uri $apiUri.AbsoluteUri -Method Post -ContentType 'application/json; charset=utf-8' -Headers @{ Authorization = ('Bearer ' + $env:DEVICE_HEALTH_API_TOKEN) } -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 30 -ErrorAction Stop
-  Write-Host ('Upload successful. Device ID: ' + $response.deviceId)
+  $response = Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType 'application/json; charset=utf-8' -Headers @{ Authorization = ('Bearer ' + $uploadToken) } -Body ([System.IO.File]::ReadAllText($file)) -TimeoutSec 45 -ErrorAction Stop
+  Write-Host ('UPLOAD SUCCESSFUL. Device ID: ' + $response.deviceId) -ForegroundColor Green
  } catch {
   Write-Warning ('API upload failed: ' + $_.Exception.Message)
   Write-Host ('Local JSON report retained: ' + $file)
  }
 } else {
- Write-Host 'Automatic upload skipped: set DEVICE_HEALTH_API_URL and DEVICE_HEALTH_API_TOKEN.'
+ Write-Host ('Upload skipped; local JSON report retained: ' + $file)
 }
+Remove-Variable uploadToken -ErrorAction SilentlyContinue
 Write-Host "RAM process report: $ramReport"; Write-Host "TXT summary: $txt"; Write-Host "Battery report: $batReport"
 Write-Host "Saved: $file"; Write-Host "Overall status: $overall"; Write-Host "Battery health: $batteryPct% | Free storage: $diskFreePct% | RAM used: $ramPct%"
 

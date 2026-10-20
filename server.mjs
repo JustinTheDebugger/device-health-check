@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {createHmac, timingSafeEqual} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {dirname,join} from 'node:path';
@@ -7,10 +8,37 @@ const port=Number(process.env.PORT||3000);
 const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(data));};
 const authorized=req=>Boolean(process.env.DEVICE_HEALTH_API_TOKEN)&&req.headers.authorization===`Bearer ${process.env.DEVICE_HEALTH_API_TOKEN}`;
 const connect=async()=>{if(!process.env.DATABASE_URL)throw Error('DATABASE_URL missing');const {neon}=await import('@neondatabase/serverless');return neon(process.env.DATABASE_URL);};
+const sessionName='dh_dashboard_session';
+const sessionMaxAge=7*24*60*60;
+const secret=()=>process.env.DASHBOARD_SESSION_SECRET||'';
+const sign=value=>createHmac('sha256',secret()).update(value).digest('hex');
+const safeEqual=(a,b)=>{const x=Buffer.from(String(a));const y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y);};
+const cookieValue=req=>(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(sessionName+'='))?.slice(sessionName.length+1)||'';
+const loggedIn=req=>{if(!secret())return false;const c=cookieValue(req);const i=c.lastIndexOf('.');if(i<1)return false;const stamp=c.slice(0,i),signature=c.slice(i+1);const expiry=Number(stamp);return Number.isSafeInteger(expiry)&&expiry>Date.now()&&safeEqual(sign(stamp),signature);};
+const secureCookie=(value,maxAge)=>`${sessionName}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+const sameOrigin=req=>{const origin=req.headers.origin;if(!origin)return false;try{const u=new URL(origin);return u.host===req.headers.host&&u.protocol==='https:';}catch{return false;}};
 export async function handler(req,res){
  const path=new URL(req.url,'http://localhost').pathname;
  if(req.method==='GET'&&path==='/api/health')return json(res,200,{ok:true,databaseConfigured:Boolean(process.env.DATABASE_URL),ingestionConfigured:Boolean(process.env.DEVICE_HEALTH_API_TOKEN)});
  if(req.method==='GET'&&(path==='/'||path==='/index.html')){try{const page=await readFile(join(root,'dist/index.html'));res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(page);}catch{return json(res,503,{error:'Run npm run build first'});}}
+ if(path==='/api/dashboard/session'&&req.method==='GET')return json(res,200,{authenticated:loggedIn(req),configured:Boolean(process.env.DASHBOARD_PASSWORD&&secret())});
+ if(path==='/api/dashboard/login'&&req.method==='POST'){
+  if(!process.env.DASHBOARD_PASSWORD||!secret())return json(res,503,{error:'Dashboard login not configured'});
+  if(!sameOrigin(req))return json(res,403,{error:'Invalid request origin'});
+  let raw='';for await(const part of req){raw+=part;if(raw.length>4096)return json(res,413,{error:'Request too large'});}
+  let password;try{password=JSON.parse(raw).password;}catch{return json(res,400,{error:'Invalid JSON'});}
+  if(typeof password!=='string'||!safeEqual(password,process.env.DASHBOARD_PASSWORD))return json(res,401,{error:'Invalid password'});
+  const expiry=Date.now()+sessionMaxAge*1000;const stamp=String(expiry);
+  res.setHeader('set-cookie',secureCookie(`${stamp}.${sign(stamp)}`,sessionMaxAge));return json(res,200,{ok:true});
+ }
+ if(path==='/api/dashboard/logout'&&req.method==='POST'){
+  if(!sameOrigin(req))return json(res,403,{error:'Invalid request origin'});
+  res.setHeader('set-cookie',secureCookie('',0));return json(res,200,{ok:true});
+ }
+ if(path==='/api/dashboard/reports'&&req.method==='GET'){
+  if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
+  try{const sql=await connect();const rows=await sql`SELECT raw_report FROM device_health_checks ORDER BY collected_at_utc DESC LIMIT 500`;return json(res,200,{reports:rows.map(x=>x.raw_report)});}catch(e){console.error('Dashboard query error',e.message);return json(res,503,{error:'Database unavailable'});}
+ }
  if(path==='/api/reports'&&req.method==='GET'){
   if(!authorized(req))return json(res,401,{error:'Unauthorized'});
   try{const sql=await connect();const rows=await sql`SELECT raw_report FROM device_health_checks ORDER BY collected_at_utc DESC LIMIT 500`;return json(res,200,{reports:rows.map(x=>x.raw_report)});}catch(e){console.error('Query error',e.message);return json(res,503,{error:'Database unavailable'});}
