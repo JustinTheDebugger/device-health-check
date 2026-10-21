@@ -37,7 +37,7 @@ export async function handler(req,res){
  }
  if(path==='/api/dashboard/reports'&&req.method==='GET'){
   if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
-  try{const sql=await connect();const rows=await sql`SELECT h.raw_report, d.id AS device_id, d.assigned_user, d.purchase_date FROM device_health_checks h JOIN devices d ON d.id=h.device_id ORDER BY h.collected_at_utc DESC LIMIT 500`;return json(res,200,{reports:rows.map(x=>({...x.raw_report,device_id:x.device_id,assigned_user:x.assigned_user,purchase_date:x.purchase_date}))});}catch(e){console.error('Dashboard query error',e.message);return json(res,503,{error:'Database unavailable'});}
+  try{const sql=await connect();const rows=await sql`SELECT h.raw_report, d.id AS device_id, d.assigned_user, d.purchase_date::text AS purchase_date FROM device_health_checks h JOIN devices d ON d.id=h.device_id ORDER BY h.collected_at_utc DESC LIMIT 500`;return json(res,200,{reports:rows.map(x=>({...x.raw_report,device_id:x.device_id,assigned_user:x.assigned_user,purchase_date:x.purchase_date}))});}catch(e){console.error('Dashboard query error',e.message);return json(res,503,{error:'Database unavailable'});}
  }
   if(path==='/api/dashboard/device-user'&&req.method==='PUT'){
    if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
@@ -48,7 +48,7 @@ export async function handler(req,res){
    if(!Number.isSafeInteger(deviceId)||deviceId<1||typeof assignedUser!=='string'||assignedUser.length>120||typeof purchaseDate!=='string'||(purchaseDate!==''&&!/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate))|| (purchaseDate!=='' && (!Number.isFinite(Date.parse(purchaseDate+'T00:00:00Z')) || new Date(purchaseDate+'T00:00:00Z').toISOString().slice(0,10)!==purchaseDate || purchaseDate>new Date().toISOString().slice(0,10))))return json(res,400,{error:'Invalid device, username or purchase date'});
    try{
     const sql=await connect();
-    const rows=await sql`UPDATE devices SET assigned_user=${assignedUser.trim()},purchase_date=${purchaseDate||null},updated_at=now() WHERE id=${deviceId} RETURNING id,assigned_user,purchase_date`;
+    const rows=await sql`UPDATE devices SET assigned_user=${assignedUser.trim()},purchase_date=${purchaseDate||null},updated_at=now() WHERE id=${deviceId} RETURNING id,assigned_user,purchase_date::text AS purchase_date`;
     if(!rows.length)return json(res,404,{error:'Device not found'});
     return json(res,200,{ok:true,deviceId:rows[0].id,assignedUser:rows[0].assigned_user,purchaseDate:rows[0].purchase_date});
    }catch(e){console.error('Assigned user update error',e.message);return json(res,503,{error:'Database unavailable. Apply the schema migration first.'});}
