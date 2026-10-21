@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta content="width=device-width,initial-scale=1" name="viewport" />
     <title>Device Health | IT Console</title>
     <style>
       :root {
@@ -362,21 +362,24 @@
         </div>
       </div>
       <div class="actions">
-        <label class="upload primary"
-          >＋ Import JSON reports<input
-            type="file"
-            id="files"
+        <label class="upload primary">
+          ＋ Import JSON reports
+          <input
             accept=".json,application/json"
-            multiple /></label
-        ><button id="connect">Dashboard login</button
-        ><button id="sync">Refresh data</button
-        ><button id="logout">Log out</button
-        ><select id="export-format" aria-label="Export format">
+            id="files"
+            multiple=""
+            type="file"
+          />
+        </label>
+        <button id="connect">Dashboard login</button>
+        <button id="sync">Refresh data</button>
+        <button id="logout">Log out</button>
+        <select aria-label="Export format" id="export-format">
           <option value="json">JSON — full analysis data</option>
-          <option value="csv">
-            Excel-compatible CSV — fleet summary
-          </option></select
-        ><button id="export">Export</button><button id="clear">Clear</button>
+          <option value="csv">Excel-compatible CSV — fleet summary</option>
+        </select>
+        <button id="export">Export</button>
+        <button id="clear">Clear</button>
       </div>
     </header>
     <main class="wrap">
@@ -384,7 +387,7 @@
       <section class="panel overview" id="management">
         <div class="top">
           <h2>Management overview</h2>
-          <small>Latest check-in per device · Rule-based assessment</small>
+          <small> Latest check-in per device · Rule-based assessment </small>
         </div>
         <div id="management-content"></div>
       </section>
@@ -393,10 +396,11 @@
           <h2>Devices</h2>
           <div class="toolbar">
             <input
-              type="search"
               id="search"
               placeholder="Search hostname, serial, model, user..."
-            /><select id="filter">
+              type="search"
+            />
+            <select id="filter">
               <option value="all">All statuses</option>
               <option value="critical">Action required</option>
               <option value="warning">Monitor</option>
@@ -404,11 +408,11 @@
               <option value="unknown">Unknown</option>
             </select>
           </div>
-          <div id="devices" class="devices"></div>
+          <div class="devices" id="devices"></div>
         </section>
         <section class="panel">
           <h2>Device details</h2>
-          <div id="details" class="empty">
+          <div class="empty" id="details">
             Import a report and select a device to view its health card.
           </div>
         </section>
