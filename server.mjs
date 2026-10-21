@@ -53,16 +53,27 @@ export async function handler(req,res){
    const buffer=await book.xlsx.writeBuffer();res.writeHead(200,{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':`attachment; filename="Zempire_Device_Health_Live_${stamp}.xlsx"`,'cache-control':'no-store'});return res.end(Buffer.from(buffer));
   }catch(e){console.error('Fleet export error',e);return json(res,503,{error:'Unable to export live fleet data'});}
  }
- if(path==='/api/dashboard/management-report.pdf'&&req.method==='GET'){
+ // AI-authored management reports are uploaded PDFs, never generated from raw metrics.
+ if(path==='/api/dashboard/management-report' && req.method==='POST'){
   if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
-  try{
-   const sql=await connect();
-   const rows=await sql`SELECT DISTINCT ON (d.id) d.id AS device_id,d.hostname,d.platform,d.assigned_user,d.purchase_date::text AS purchase_date,h.collected_at_utc,h.overall_status,h.metrics,h.ratings FROM devices d JOIN device_health_checks h ON h.device_id=d.id ORDER BY d.id,h.collected_at_utc DESC`;
-   const {createManagementPdf}=await import('./report-pdf.mjs');
-   const pdf=await createManagementPdf(rows);
-   res.writeHead(200,{'content-type':'application/pdf','content-disposition':`attachment; filename="Zempire_Device_Health_Management_Report_NZ_${new Date().toISOString().slice(0,10)}.pdf"`,'cache-control':'no-store','content-length':pdf.length,'x-content-type-options':'nosniff'});
-   return res.end(pdf);
-  }catch(e){console.error('Management report generation error',e);return json(res,503,{error:'Unable to generate live report'});}
+  if(!sameOrigin(req))return json(res,403,{error:'Invalid request origin'});
+  const maxBody=11*1024*1024;let chunks=[],size=0;
+  for await(const chunk of req){size+=chunk.length;if(size>maxBody)return json(res,413,{error:'Report exceeds upload limit (8 MB PDF)'});chunks.push(chunk);}
+  let data;try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return json(res,400,{error:'Invalid upload'});}
+  if(typeof data?.filename!=='string'||!/^[-a-zA-Z0-9_ ().]{1,160}\.pdf$/i.test(data.filename)||typeof data?.pdf_base64!=='string'||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data.pdf_base64))return json(res,400,{error:'Upload a valid PDF file'});
+  const pdf=Buffer.from(data.pdf_base64,'base64');if(pdf.length<8||pdf.length>8*1024*1024||pdf.subarray(0,5).toString()!=='%PDF-')return json(res,400,{error:'Invalid PDF or file larger than 8 MB'});
+  try{const sql=await connect();await sql`CREATE TABLE IF NOT EXISTS management_reports (id BIGSERIAL PRIMARY KEY, filename TEXT NOT NULL, pdf_base64 TEXT NOT NULL, uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+   const rows=await sql`INSERT INTO management_reports(filename,pdf_base64) VALUES (${data.filename},${data.pdf_base64}) RETURNING id,uploaded_at`;
+   return json(res,201,{ok:true,id:rows[0].id,uploaded_at:rows[0].uploaded_at});
+  }catch(e){console.error('Management PDF upload error',e);return json(res,503,{error:'Could not save PDF to NeonDB'});}
+ }
+ if(path==='/api/dashboard/management-report.pdf' && req.method==='GET'){
+  if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
+  try{const sql=await connect();const rows=await sql`SELECT filename,pdf_base64 FROM management_reports ORDER BY uploaded_at DESC,id DESC LIMIT 1`;
+   if(!rows.length)return json(res,404,{error:'No management report uploaded yet'});
+   const pdf=Buffer.from(rows[0].pdf_base64,'base64');const filename=rows[0].filename.replace(/[^a-zA-Z0-9_. -]/g,'_');
+   res.writeHead(200,{'content-type':'application/pdf','content-disposition':`attachment; filename="${filename}"`,'cache-control':'no-store','content-length':pdf.length,'x-content-type-options':'nosniff'});return res.end(pdf);
+  }catch(e){console.error('Management PDF download error',e);return json(res,503,{error:'Unable to retrieve uploaded report'});}
  }
  if(path==='/api/dashboard/reports'&&req.method==='GET'){
   if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
