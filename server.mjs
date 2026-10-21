@@ -35,6 +35,17 @@ export async function handler(req,res){
   if(!sameOrigin(req))return json(res,403,{error:'Invalid request origin'});
   res.setHeader('set-cookie',secureCookie('',0));return json(res,200,{ok:true});
  }
+ if(path==='/api/dashboard/management-report.pdf'&&req.method==='GET'){
+  if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
+  try{
+   const sql=await connect();
+   const rows=await sql`SELECT DISTINCT ON (d.id) d.id AS device_id,d.hostname,d.platform,d.assigned_user,d.purchase_date::text AS purchase_date,h.collected_at_utc,h.overall_status,h.metrics,h.ratings FROM devices d JOIN device_health_checks h ON h.device_id=d.id ORDER BY d.id,h.collected_at_utc DESC`;
+   const {createManagementPdf}=await import('./report-pdf.mjs');
+   const pdf=await createManagementPdf(rows);
+   res.writeHead(200,{'content-type':'application/pdf','content-disposition':`attachment; filename="Zempire_Device_Health_Management_Report_NZ_${new Date().toISOString().slice(0,10)}.pdf"`,'cache-control':'no-store','content-length':pdf.length,'x-content-type-options':'nosniff'});
+   return res.end(pdf);
+  }catch(e){console.error('Management report generation error',e);return json(res,503,{error:'Unable to generate live report'});}
+ }
  if(path==='/api/dashboard/reports'&&req.method==='GET'){
   if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
   try{const sql=await connect();const rows=await sql`SELECT h.raw_report, d.id AS device_id, d.assigned_user, d.purchase_date::text AS purchase_date FROM device_health_checks h JOIN devices d ON d.id=h.device_id ORDER BY h.collected_at_utc DESC LIMIT 500`;return json(res,200,{reports:rows.map(x=>({...x.raw_report,device_id:x.device_id,assigned_user:x.assigned_user,purchase_date:x.purchase_date}))});}catch(e){console.error('Dashboard query error',e.message);return json(res,503,{error:'Database unavailable'});}
