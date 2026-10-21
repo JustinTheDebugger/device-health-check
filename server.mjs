@@ -35,6 +35,24 @@ export async function handler(req,res){
   if(!sameOrigin(req))return json(res,403,{error:'Invalid request origin'});
   res.setHeader('set-cookie',secureCookie('',0));return json(res,200,{ok:true});
  }
+ if((path==='/api/dashboard/fleet.json'||path==='/api/dashboard/fleet.xlsx')&&req.method==='GET'){
+  if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
+  try{
+   const sql=await connect();
+   const rows=await sql`SELECT DISTINCT ON (d.id) d.id AS device_id,d.hostname,d.platform,d.assigned_user,d.purchase_date::text AS purchase_date,h.collected_at_utc,h.overall_status,h.metrics,h.ratings,h.raw_report FROM devices d JOIN device_health_checks h ON h.device_id=d.id ORDER BY d.id,h.collected_at_utc DESC`;
+   const stamp=new Date().toISOString().slice(0,10);
+   if(path.endsWith('.json')){
+    const payload=JSON.stringify({generated_at_utc:new Date().toISOString(),source:'NeonDB latest check-in per device',devices:rows},null,2);
+    res.writeHead(200,{'content-type':'application/json; charset=utf-8','content-disposition':`attachment; filename="Zempire_Device_Health_Live_${stamp}.json"`,'cache-control':'no-store'});return res.end(payload);
+   }
+   const ExcelJS=(await import('exceljs')).default;const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Latest Device Health');
+   const columns=[['Device ID','device_id'],['Hostname','hostname'],['Assigned user','assigned_user'],['Platform','platform'],['Collected at UTC','collected_at_utc'],['Overall health','overall_status'],['Purchase date','purchase_date'],['Uptime days','uptime_days'],['CPU %','cpu_percent'],['RAM used %','ram_used_percent'],['Free storage %','storage_free_percent'],['Battery health %','battery_health_percent'],['Uptime rating','uptime_rating'],['Memory rating','memory_rating'],['Battery rating','battery_rating'],['Storage rating','storage_rating']];
+   sheet.columns=columns.map(([header,key])=>({header,key,width:Math.min(35,Math.max(15,header.length+3))}));
+   for(const r of rows){const entry={...r};for(const k of ['uptime_days','cpu_percent','ram_used_percent','storage_free_percent','battery_health_percent'])entry[k]=r.metrics?.[k]??null;for(const k of ['uptime','memory','battery','storage'])entry[k+'_rating']=r.ratings?.[k]??null;delete entry.metrics;delete entry.ratings;delete entry.raw_report;sheet.addRow(entry);}
+   sheet.getRow(1).font={bold:true,color:{argb:'FFFFFFFF'}};sheet.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF18344F'}};sheet.views=[{state:'frozen',ySplit:1}];sheet.autoFilter={from:'A1',to:`P${Math.max(2,rows.length+1)}`};
+   const buffer=await book.xlsx.writeBuffer();res.writeHead(200,{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':`attachment; filename="Zempire_Device_Health_Live_${stamp}.xlsx"`,'cache-control':'no-store'});return res.end(Buffer.from(buffer));
+  }catch(e){console.error('Fleet export error',e);return json(res,503,{error:'Unable to export live fleet data'});}
+ }
  if(path==='/api/dashboard/management-report.pdf'&&req.method==='GET'){
   if(!loggedIn(req))return json(res,401,{error:'Dashboard login required'});
   try{
