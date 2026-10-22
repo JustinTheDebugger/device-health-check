@@ -266,6 +266,12 @@
           font-size: 28px;
         }
       }
+      .indicator-table-wrap { overflow-x: auto; }
+      .indicator-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+      .indicator-table th { background: #223a5a; color: #fff; font-weight: 700; padding: 12px; }
+      .indicator-table td { padding: 12px; border-bottom: 1px solid #28364d; vertical-align: middle; }
+      .indicator-table th:first-child, .indicator-table td:first-child { min-width: 120px; }
+      .detailrow span:last-child { text-align: right; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
@@ -327,6 +333,21 @@
           </div>
         </section>
       </div>
+      <section class="section panel" aria-labelledby="health-level-title">
+        <h2 id="health-level-title">Health Level Indicators</h2>
+        <p class="hint">Reference guide to the health ratings reported by the device collectors. Individual metric thresholds are determined by collector rules.</p>
+        <div class="indicator-table-wrap">
+          <table class="indicator-table">
+            <thead><tr><th>Health level</th><th>Meaning</th><th>Management interpretation</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge good">Good</span></td><td>Within the collector's normal range</td><td>No immediate concern indicated by this check-in</td></tr>
+              <tr><td><span class="badge warning">Warning</span></td><td>One or more indicators need attention</td><td>Review the affected metric and verify the result</td></tr>
+              <tr><td><span class="badge critical">Critical</span></td><td>One or more indicators are flagged as high priority</td><td>Prioritise assessment; a replacement decision requires further evidence</td></tr>
+              <tr><td><span class="badge unknown">Unknown</span></td><td>Insufficient or unavailable data</td><td>Collect or validate the missing measurement</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
       <div class="section panel">
         <h2>Connection status</h2>
         <p id="connection">Checking dashboard session...</p>
@@ -499,7 +520,7 @@
         const history = reports.filter((x) => idOf(x) === selected).length;
         const groups = (r.processes?.memory_groups || []).slice(0, 15);
         $("details").innerHTML =
-          `<div class="top">${badge(r.overall_status)}<span class="muted">${history} check-in(s)</span></div><div class="detailname">${safe(r.hostname)}</div><div class="muted">${safe(d.manufacturer)} ${safe(d.model)}</div><div class="section"><h2>Hardware specifications</h2><div class="detailrow"><span>Model</span><span>${safe([d.manufacturer, d.model].filter(Boolean).join(" ") || "Unknown")}</span></div><div class="detailrow"><span>Processor</span><span>${safe(d.cpu_model || "Unknown")}</span></div><div class="detailrow"><span>Installed memory</span><span>${safe(fmt(m.ram_total_gb, " GB"))}</span></div><div class="detailrow"><span>Total storage (system drive)</span><span>${safe(fmt(m.storage_total_gb, " GB"))}</span></div></div><div class="section"><h2>Health metrics</h2></div><div class="metrics">${metric("Device age", fmt(a, " years"), ageRate(a))}${metric("Battery health", fmt(m.battery_health_percent, "%"), rt.battery)}${metric("CPU usage", fmt(m.cpu_percent, "%"), rt.cpu)}${metric("RAM used", fmt(m.ram_used_percent, "%"), rt.memory)}${metric("Free storage", fmt(m.storage_free_percent, "%"), rt.storage)}${metric("Uptime", fmt(m.uptime_days, " days"), rt.uptime)}</div><div class="section"><h2>Assigned User</h2><div class="toolbar"><input type="search" id="assigned-user" aria-label="Assigned user" placeholder="Enter employee name" maxlength="120" value="${safe(deviceUsers[idOf(r)]?.assignedUser ?? r.assigned_user ?? "")}"><button class="primary" id="save-user" type="button">Save Changes</button></div><p class="hint" id="user-save-status">Save the assigned user and purchase date together to NeonDB.</p></div><div class="section"><h2>Asset information</h2><div class="detailrow"><span>Serial number</span><span>${safe(d.serial_number)}</span></div><div class="detailrow"><span>Operating system</span><span>${safe(d.os_name)} ${safe(d.os_version)}</span></div><div class="detailrow"><span>Battery cycles</span><span>${safe(fmt(m.battery_cycle_count))}</span></div><div class="detailrow"><span>Last checked</span><span>${safe(new Date(r.collected_at_utc).toLocaleString())}</span></div><div class="detailrow"><span>Purchase date</span><input aria-label="Purchase date" type="date" id="purchase" value="${safe(dateOnly(deviceUsers[idOf(r)]?.purchaseDate ?? r.purchase_date ?? dates[idOf(r)] ?? d.purchase_date))}"></div><p class="hint">Age is calculated to today's date from the saved purchase date. Leave blank if unknown. Click Save Changes above to save both fields.</p></div><div class="section"><h2>RAM investigation — top applications</h2>${groups.length ? groups.map((g, i) => `<div class="detailrow"><span>${i + 1}. ${safe(g.name)}</span><span>${safe(fmt(g.working_set_mb ?? g.resident_mb, " MB"))} · ${safe(fmt(g.instances))} process(es)</span></div>`).join("") : '<p class="hint">No per-application RAM breakdown available.</p>'}<p class="hint">Process working sets can overlap and do not sum to total RAM usage.</p></div>`;
+          `<div class="top">${badge(r.overall_status)}<span class="muted">${history} check-in(s)</span></div><div class="detailname">${safe(deviceUsers[idOf(r)]?.assignedUser || r.assigned_user || "Unassigned")}</div><div class="muted">${safe(r.hostname)} · ${safe(d.manufacturer)} ${safe(d.model)}</div><div class="section"><h2>Hardware specifications</h2><div class="detailrow"><span>Model</span><span>${safe([d.manufacturer, d.model].filter(Boolean).join(" ") || "Unknown")}</span></div><div class="detailrow"><span>Processor</span><span>${safe(d.cpu_model || "Unknown")}</span></div><div class="detailrow"><span>Installed memory</span><span>${safe(fmt(m.ram_total_gb, " GB"))}</span></div><div class="detailrow"><span>Total storage (system drive)</span><span>${safe(fmt(m.storage_total_gb, " GB"))}</span></div></div><div class="section"><h2>Health metrics</h2></div><div class="metrics">${metric("Device age", fmt(a, " years"), ageRate(a))}${metric("Battery health", fmt(m.battery_health_percent, "%"), rt.battery)}${metric("CPU usage", fmt(m.cpu_percent, "%"), rt.cpu)}${metric("RAM used", fmt(m.ram_used_percent, "%"), rt.memory)}${metric("Free storage", fmt(m.storage_free_percent, "%"), rt.storage)}${metric("Uptime", fmt(m.uptime_days, " days"), rt.uptime)}</div><div class="section"><h2>Assigned User</h2><div class="toolbar"><input type="search" id="assigned-user" aria-label="Assigned user" placeholder="Enter employee name" maxlength="120" value="${safe(deviceUsers[idOf(r)]?.assignedUser ?? r.assigned_user ?? "")}"><button class="primary" id="save-user" type="button">Save Changes</button></div><p class="hint" id="user-save-status">Save the assigned user and purchase date together to NeonDB.</p></div><div class="section"><h2>Asset information</h2><div class="detailrow"><span>Serial number</span><span>${safe(d.serial_number)}</span></div><div class="detailrow"><span>Operating system</span><span>${safe(d.os_name)} ${safe(d.os_version)}</span></div><div class="detailrow"><span>Battery cycles</span><span>${safe(fmt(m.battery_cycle_count))}</span></div><div class="detailrow"><span>Last checked</span><span>${safe(new Date(r.collected_at_utc).toLocaleString())}</span></div><div class="detailrow"><span>Purchase date</span><input aria-label="Purchase date" type="date" id="purchase" value="${safe(dateOnly(deviceUsers[idOf(r)]?.purchaseDate ?? r.purchase_date ?? dates[idOf(r)] ?? d.purchase_date))}"></div><p class="hint">Age is calculated to today's date from the saved purchase date. Leave blank if unknown. Click Save Changes above to save both fields.</p></div><div class="section"><h2>RAM investigation — top applications</h2>${groups.length ? groups.map((g, i) => `<div class="detailrow"><span>${i + 1}. ${safe(g.name)}</span><span>${safe(fmt(g.working_set_mb ?? g.resident_mb, " MB"))} · ${safe(fmt(g.instances))} process(es)</span></div>`).join("") : '<p class="hint">No per-application RAM breakdown available.</p>'}<p class="hint">Process working sets can overlap and do not sum to total RAM usage.</p></div>`;
         $("save-user").onclick = async () => {
           const item = deviceUsers[idOf(r)] || {},
             deviceId = item.deviceId || r.device_id;
@@ -633,8 +654,9 @@
                 x.collected_at_utc === r.collected_at_utc,
             );
             if (existing) {
-              existing.device_id = r.device_id;
-              existing.assigned_user = r.assigned_user;
+              // Refresh the entire stored check-in, including hardware, metrics and ratings.
+              // Older browser cache entries must not hide NeonDB corrections.
+              Object.assign(existing, r);
               existing.purchase_date = dateOnly(r.purchase_date);
             } else {
               reports.push(r);
