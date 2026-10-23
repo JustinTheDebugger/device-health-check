@@ -272,6 +272,15 @@
       .indicator-table td { padding: 12px; border-bottom: 1px solid #28364d; vertical-align: middle; }
       .indicator-table th:first-child, .indicator-table td:first-child { min-width: 120px; }
       .detailrow span:last-child { text-align: right; overflow-wrap: anywhere; }
+
+      .priority-scroll { overflow-x: auto; }
+      .priority-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .priority-table th, .priority-table td { text-align: left; padding: 11px 10px; border-bottom: 1px solid #2a3952; vertical-align: top; }
+      .priority-table th { background: #203451; color: #ffffff; white-space: nowrap; }
+      .priority-table tbody tr:hover { background: #1b2d4c; }
+      .priority-table button { padding: 5px 8px; font-size: 12px; }
+      .priority-score { font-weight: 750; font-size: 16px; white-space: nowrap; }
+      .priority-flag { display: inline-block; margin: 2px 4px 2px 0; padding: 3px 6px; border-radius: 5px; background: #2b3950; }
     </style>
   </head>
   <body>
@@ -333,6 +342,18 @@
           </div>
         </section>
       </div>
+
+      <section class="section panel" aria-labelledby="priority-title">
+        <h2 id="priority-title">Top 10 Device Priorities</h2>
+        <p class="hint">Evidence-based attention score (0–100; higher means review sooner). Prioritises low free storage and battery wear; high RAM usage matters most when repeated across check-ins. A new device is not penalised for normal RAM use. Missing readings are not failures. Click View to open a device.</p>
+        <div class="priority-scroll">
+          <table class="priority-table">
+            <thead><tr><th>Rank</th><th>Assigned user</th><th>Device</th><th>Priority score</th><th>Health</th><th>Key findings</th><th>Evidence</th><th></th></tr></thead>
+            <tbody id="priority-rows"><tr><td colspan="8">No device data yet.</td></tr></tbody>
+          </table>
+        </div>
+        <p class="hint">This is a triage score, not a failure probability or replacement recommendation. CPU snapshots and uptime do not contribute to the score. Battery readings absent on desktop Macs are treated as not applicable. A single high RAM reading is flagged but receives a smaller score until repeated; multiple check-ins should be taken at different times. Purchase date is shown as context only because device age alone does not establish poor health.</p>
+      </section>
       <section class="section panel" aria-labelledby="health-level-title">
         <h2 id="health-level-title">Health Level Indicators</h2>
         <p class="hint">Reference guide to the health ratings reported by the device collectors. Individual metric thresholds are determined by collector rules.</p>
@@ -460,8 +481,64 @@
               ? "warning"
               : "review";
       }
+
+      function priorityOf(r) {
+        const m = r.metrics || {};
+        const num = v => v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+        const storage = num(m.storage_free_percent);
+        const battery = num(m.battery_health_percent);
+        const ram = num(m.ram_used_percent);
+        const history = reports.filter(x => idOf(x) === idOf(r))
+          .sort((a,b) => new Date(b.collected_at_utc) - new Date(a.collected_at_utc));
+        // Compare distinct recent check-ins. Do not treat a single busy moment as sustained pressure.
+        const recent = history.slice(0,5);
+        const ramSamples = recent.map(x => num(x.metrics?.ram_used_percent)).filter(v => v !== null);
+        const sustainedRam = ramSamples.length >= 2 && ramSamples.filter(v => v >= 90).length >= 2;
+        const flags = [];
+        let score = 0;
+        if (storage !== null) {
+          if (storage < 5) {score += 45; flags.push('Critical storage: '+storage+'% free');}
+          else if (storage < 10) {score += 36; flags.push('Very low storage: '+storage+'% free');}
+          else if (storage < 15) {score += 26; flags.push('Low storage: '+storage+'% free');}
+          else if (storage < 20) {score += 15; flags.push('Storage below 20%: '+storage+'% free');}
+        }
+        if (battery !== null) {
+          if (battery < 60) {score += 40; flags.push('Severe battery wear: '+battery+'%');}
+          else if (battery < 70) {score += 32; flags.push('Reduced battery capacity: '+battery+'%');}
+          else if (battery < 80) {score += 22; flags.push('Battery wear: '+battery+'%');}
+          else if (battery < 85) {score += 8; flags.push('Monitor battery: '+battery+'%');}
+        }
+        if (ram !== null) {
+          if (sustainedRam) {score += 15; flags.push('Repeated high RAM usage (90%+)');}
+          else if (ram >= 95) {score += 7; flags.push('RAM spike: '+ram+'% (verify)');}
+          else if (ram >= 90) {score += 5; flags.push('High RAM: '+ram+'% (verify)');}
+          else if (ram >= 85) {flags.push('RAM elevated: '+ram+'% (monitor)');}
+        }
+        if (!flags.length) flags.push('No material risk signal in available readings');
+        const known = [storage !== null, battery !== null, ram !== null].filter(Boolean).length;
+        return {score: known ? Math.min(100,score) : null, flags, samples:recent.length,
+          evidence: sustainedRam ? 'Repeated RAM concern' : recent.length >= 2 ? 'Multiple check-ins' : 'Single check-in',
+          known};
+      }
+      function renderPriority(all) {
+        const ranked = all.map(r => ({r, p:priorityOf(r)}))
+          .sort((a,b) => (b.p.score ?? -1)-(a.p.score ?? -1) || String(a.r.hostname).localeCompare(String(b.r.hostname))).slice(0,10);
+        $('priority-rows').innerHTML = ranked.length ? ranked.map(({r,p},i) => {
+          const user = deviceUsers[idOf(r)]?.assignedUser || r.assigned_user || 'Unassigned';
+          const label = p.score === null ? 'Insufficient data' : p.score+'/100';
+          return `<tr><td>${i+1}</td><td><strong>${safe(user)}</strong></td><td>${safe(r.hostname || 'Unknown device')}</td><td><span class="priority-score">${safe(label)}</span></td><td>${badge(r.overall_status)}</td><td>${p.flags.map(x=>`<span class="priority-flag">${safe(x)}</span>`).join('')}</td><td>${safe(p.evidence)}<div class="hint">${p.samples} recent check-in(s) · ${p.known}/3 metric types</div></td><td><button type="button" data-priority-id="${safe(idOf(r))}">View</button></td></tr>`;
+        }).join('') : '<tr><td colspan="8">No device data yet.</td></tr>';
+        document.querySelectorAll('[data-priority-id]').forEach(el => el.onclick = () => {
+          selected = el.dataset.priorityId;
+          $('search').value = '';
+          $('filter').value = 'all';
+          render();
+          $('details').scrollIntoView({behavior:'smooth',block:'start'});
+        });
+      }
       function render() {
         const all = latest();
+        renderPriority(all);
         const count = (s) =>
           all.filter((x) => status(x.overall_status) === s).length;
         $("stats").innerHTML = [
